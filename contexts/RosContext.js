@@ -17,7 +17,6 @@ export const RosProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionUri, setConnectionUri] = useState('ws://localhost:9090');
   const [robotNamespace, setRobotNamespace] = useState('');
-  const [walkPackage, setWalkPackage] = useState('quintic_walk');
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const [isConnecting, setIsConnecting] = useState(false);
   const [lastError, setLastError] = useState(null);
@@ -62,7 +61,6 @@ export const RosProvider = ({ children }) => {
     try {
       const savedUri = localStorage.getItem('ros_connection_uri');
       const savedNamespace = localStorage.getItem('ros_robot_namespace');
-      const savedWalkPackage = localStorage.getItem('ros_walk_package');
       
       if (savedUri) {
         // Validate saved URI before setting it
@@ -78,10 +76,6 @@ export const RosProvider = ({ children }) => {
       
       if (savedNamespace) {
         setRobotNamespace(savedNamespace);
-      }
-      
-      if (savedWalkPackage) {
-        setWalkPackage(savedWalkPackage);
       }
       
       // Auto-connect on initial load if we have valid saved settings
@@ -329,7 +323,7 @@ export const RosProvider = ({ children }) => {
     setReconnectAttempts(0); // Reset reconnect attempts
   };
 
-  const updateConnection = (uri, namespace, walkPkg) => {
+  const updateConnection = (uri, namespace) => {
     // Validate the URI before updating
     const validation = validateWebSocketUrl(uri);
     if (!validation.valid) {
@@ -340,21 +334,14 @@ export const RosProvider = ({ children }) => {
 
     const uriChanged = uri !== connectionUri;
     const namespaceChanged = namespace !== robotNamespace;
-    const walkPackageChanged = walkPkg !== walkPackage;
     
     setConnectionUri(uri);
     setRobotNamespace(namespace);
-    if (walkPkg !== undefined) {
-      setWalkPackage(walkPkg);
-    }
     
     // Save to localStorage only if URI is valid
     try {
       localStorage.setItem('ros_connection_uri', uri);
       localStorage.setItem('ros_robot_namespace', namespace);
-      if (walkPkg !== undefined) {
-        localStorage.setItem('ros_walk_package', walkPkg);
-      }
     } catch (error) {
       console.error('Error saving connection settings:', error);
     }
@@ -415,7 +402,6 @@ export const RosProvider = ({ children }) => {
     isConnected,
     connectionUri,
     robotNamespace,
-    walkPackage,
     connectionStatus,
     isConnecting,
     lastError,
@@ -426,7 +412,6 @@ export const RosProvider = ({ children }) => {
     disconnect,
     updateConnection,
     cancelConnection,
-    setWalkPackage,
     
     // ROS instance
     getRos,

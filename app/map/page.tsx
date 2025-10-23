@@ -1,30 +1,27 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Image from "next/image";
+import dynamic from 'next/dynamic';
 import ROSLIB from "roslib";
 import ConnectionStatusBar from "@/components/ConnectionStatusBar";
 import { useRos } from "@/contexts/RosContext";
+import usePathWorker from "@/hooks/usePathWorker";
 
-interface RobotPosition {
-  x: number;
-  y: number;
-  theta: number;
-  heading: string;
-  timestamp: string;
+// Dynamically import MapComponent with no SSR
+const MapComponent = dynamic(() => import('@/components/MapComponent'), {
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-screen">Loading map...</div>
+});
+
+interface Position {
+  lat: number;
+  lon: number;
 }
 
-interface Marker {
-  id: number;
-  x: number;
-  y: number;
-  heading: string;
-  timestamp: string;
-  status: string;
-}
 
 export default function Home() {
-  const [robotPos, setRobotPos] = useState<RobotPosition | null>(null);
-  const [markers, setMarkers] = useState<Marker[]>([]);
+  const [position, setPosition] = useState<Position | null>(null);
+  const { path, addPosition, clearPath } = usePathWorker();
   const { isConnected, getRos, robotNamespace, connectionStatus, ensureConnection } = useRos();
 
   // Ensure connection is maintained when component mounts
@@ -34,7 +31,7 @@ export default function Home() {
     }
   }, [ensureConnection]);
 
-  // Subscribe to odometry
+  // Subscribe to /navsat/fix
   useEffect(() => {
     if (!isConnected) return;
 
@@ -48,78 +45,67 @@ export default function Home() {
       return `/${robotNamespace}/${topic}`;
     };
 
-    const odom = new ROSLIB.Topic({
+    const navsat_sub = new ROSLIB.Topic({
       ros: ros,
-      name: getTopicPath('walk_engine_odometry'),
-      messageType: "nav_msgs/Odometry",
+      name: getTopicPath('gnss/fix'),
+      messageType: "sensor_msgs/NavSatFix",
     });
 
     const callback = (msg: any) => {
-      const { position, orientation } = msg.pose.pose;
-      const theta = Math.atan2(
-        2 * (orientation.w * orientation.z + orientation.x * orientation.y),
-        1 - 2 * (orientation.y * orientation.y + orientation.z * orientation.z)
-      );
+      const latitude = msg.latitude
+      const longitude = msg.longitude
+      console.log("lat: %d, lon: %d", latitude, longitude);
 
-      setRobotPos({
-        x: position.x,
-        y: position.y,
-        theta,
-        heading: getCardinalDirection(theta),
-        timestamp: new Date().toLocaleTimeString(),
-      });
+      const newPosition = {
+        lat: latitude,
+        lon: longitude
+      };
+
+      setPosition(newPosition);
+      // Add position to worker for processing
+      addPosition(newPosition);
     };
 
-    odom.subscribe(callback);
-    return () => odom.unsubscribe();
-  }, [isConnected, getRos]);
+    navsat_sub.subscribe(callback);
+    return () => navsat_sub.unsubscribe();
+  }, [isConnected, getRos, addPosition]);
 
-  const getCardinalDirection = (theta: number) => {
-    const degrees = theta * (180 / Math.PI);
-    const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-    const index = Math.round((((degrees % 360) + 360) % 360) / 45) % 8;
-    return directions[index];
-  };
+  // Debug: Log path updates
+  useEffect(() => {
+    console.log('Path updated. Total points:', path.length);
+  }, [path]);
 
 
   return (
-    <div className="min-h-screen p-6 bg-white">
-      {/* Removed animated background elements for white mode */}
+    <div className="fixed inset-0 overflow-hidden">
+      {/* Map fills entire page */}
+      <MapComponent position={position} path={path}/>
 
-      {/* Header */}
-      <header className="mb-8">
-        <div className="bg-white border border-gray-200 shadow-sm rounded-md p-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                {/* Back Button */}
-                <button
-                  onClick={() => {
-                    const basePath = window.location.hostname === "localhost" ? "/" : "/autodrive-dashboard";
-                    window.location.href = basePath;
-                  }}
-                  className="flex items-center gap-2 px-2 py-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors duration-150"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  <span className="text-xs font-medium">Back</span>
-                </button>
-                <h1 className="text-sm font-semibold text-gray-900">
-                  Map & Navigation
-                </h1>
-              </div>
-            </div>
+      {/* Connection Status Bar floating on top */}
+      <div className="absolute top-6 left-0 right-0 z-[1000] px-6">
+        <ConnectionStatusBar showFullControls={false} />
+      </div>
 
-            <div className="flex gap-3">
-              {/* Additional controls can be added here if needed */}
-            </div>
+      {/* Clear Path Button */}
+      <div className="absolute bottom-6 right-6 z-[1000]">
+        <button
+          onClick={clearPath}
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg transition-colors flex items-center gap-2"
+          title="Clear path and cache"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Clear Path
+        </button>
+        
+        {/* Path info badge */}
+        {path.length > 0 && (
+          <div className="mt-2 bg-white bg-opacity-90 px-3 py-1 rounded-lg shadow text-sm text-gray-700">
+            {path.length} points cached
           </div>
-        </div>
-      </header>
-
-      {/* Connection Status Bar */}
-      <ConnectionStatusBar showFullControls={false} />
+        )}
+      </div>
 
     </div>
   );
