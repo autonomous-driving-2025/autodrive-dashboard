@@ -72,18 +72,47 @@ interface MapComponentProps {
 
 // Memoize the main component to prevent unnecessary re-renders
 const MapComponent = memo(({ position = null, path = [] }: MapComponentProps) => {
-  // Debug logging
+  // Debug logging (throttled for performance with large paths)
   useEffect(() => {
-    console.log('MapComponent - Position:', position);
-    console.log('MapComponent - Path length:', path.length);
+    if (path.length % 100 === 0 || path.length < 10) {
+      console.log('MapComponent - Position:', position);
+      console.log('MapComponent - Path length:', path.length);
+    }
   }, [position, path]);
 
   // Use a static default center - DO NOT change this on re-render
   const defaultCenter: [number, number] = [-7.770674369531926, 110.37788002883504];
 
-  // Memoize polyline positions to avoid recreating array on every render
+  // Memoize polyline positions with optimization for large datasets
+  // Use Douglas-Peucker-like simplification for paths > 50k points
   const polylinePositions = useMemo(() => {
-    return path.map(p => [p.lat, p.lon] as [number, number]);
+    const positions = path.map(p => [p.lat, p.lon] as [number, number]);
+    
+    // For massive datasets (>50k points), use adaptive sampling to maintain performance
+    // This keeps the path visual quality while reducing render complexity
+    if (positions.length > 50000) {
+      console.log(`Large path detected: ${positions.length} points, applying optimization...`);
+      
+      // Keep every Nth point, but always keep first and last
+      // For 100k points, sample every 2nd point = 50k points
+      // For 1M points, sample every 20th point = 50k points
+      const targetPoints = 50000;
+      const step = Math.ceil(positions.length / targetPoints);
+      
+      const simplified: [number, number][] = [];
+      for (let i = 0; i < positions.length; i += step) {
+        simplified.push(positions[i]);
+      }
+      // Always include the last point
+      if (simplified[simplified.length - 1] !== positions[positions.length - 1]) {
+        simplified.push(positions[positions.length - 1]);
+      }
+      
+      console.log(`Path simplified from ${positions.length} to ${simplified.length} points`);
+      return simplified;
+    }
+    
+    return positions;
   }, [path]);
 
   // Memoize marker position

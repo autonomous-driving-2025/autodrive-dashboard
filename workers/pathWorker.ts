@@ -17,7 +17,10 @@ interface WorkerResponse {
 
 let path: Position[] = [];
 let lastPosition: Position | null = null;
-const MAX_POINTS = 1000;
+// Maximum points in worker memory - 1 million points
+// At 1Hz GPS frequency: 1M points = 277+ hours (11+ days) of continuous tracking
+// At 10Hz: 27+ hours of tracking
+const MAX_POINTS = 1000000;
 
 // Handle messages from main thread
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
